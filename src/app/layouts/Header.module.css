@@ -1,0 +1,56 @@
+.header {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.brand {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-md);
+}
+
+.navToggle {
+  display: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.navToggleIcon,
+.navToggleIcon::before,
+.navToggleIcon::after {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background-color: var(--color-text);
+  border-radius: var(--radius-full);
+}
+
+.navToggleIcon::before,
+.navToggleIcon::after {
+  content: '';
+  position: relative;
+}
+
+.navToggleIcon::before {
+  top: -5px;
+}
+
+.navToggleIcon::after {
+  top: 3px;
+}
+
+@media (max-width: 900px) {
+  .navToggle {
+    display: inline-flex;
+  }
+}
