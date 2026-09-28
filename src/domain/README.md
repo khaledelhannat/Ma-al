@@ -1,20 +1,23 @@
 # Domain
 
-This is the future home of the deterministic **Financial Engine**: entities,
-calculations, and business rules, as defined by the Step 0 specification.
+Canonical, pure TypeScript model of the Step 0 specification. Independent of
+React, Dexie and every other layer (enforced by ESLint).
 
-- `entities/` — Transaction, Category, Asset, GoldPriceRecord,
-  GoldHoldingRecord, Allocation, Goal, WishlistItem, Budget,
-  MonthlySnapshot, RecurringRule, Settings, etc.
-- `calculations/` — net worth, spendable money, goal progress/funding,
-  budget rollups, and other derived financial metrics.
-- `rules/` — business rules such as transfer handling, historical
-  allocation/gold-price time-awareness, snapshot dirtying, and recurring
-  rule backfill behavior.
-- `financial/` — the Financial Engine itself, composing the above.
+- `values/` — primitive value types and their conventions: `Id`, `Money`
+  (integer piastres), `CalendarDate` (`YYYY-MM-DD`), `Month` (`YYYY-MM`),
+  `Timestamp` (canonical UTC ISO 8601).
+- `entities/` — one file per Step 0 entity: Transaction, Category, Asset,
+  GoldPriceRecord, GoldHoldingRecord, Allocation, Goal, WishlistItem, Budget,
+  MonthlySnapshot, RecurringRule, Settings.
+- `rules/` — pure validation and invariants, plus `isActiveOn` for the
+  `[startDate, endDate)` interval.
+- `test-support/` — test-only builders; never imported by application code.
 
-None of this is implemented in Step 1. It is intentionally empty so the
-boundary exists without fake or placeholder domain types. Real
-implementation begins in **Step 2** and **Step 3**, per the Step 0
-specification, which remains the source of truth for exact field
-definitions and business rules.
+`calculations/` and `financial/` are still empty: the Financial Engine
+(net worth, spendable money, goal progress, budget variance, snapshots) is a
+later step and will operate on these contracts. Do not add derived values to
+the entities; stored state and derived state are kept apart on purpose.
+
+See `docs/architecture.md` for conventions, design rationale and the spec
+gaps that were resolved. Step 0 remains the source of truth for business
+rules.

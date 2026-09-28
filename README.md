@@ -10,18 +10,19 @@ The full product vision, domain model, and business rules live in the
 **Step 0 specification**, which is the authoritative source of truth for
 this project. This README only describes the technical foundation.
 
-## Project status: Step 1 — Project Foundation
+## Project status: Step 2 — Domain Model & Contracts
 
-This repository currently contains the **application shell and technical
-foundation only**. No financial functionality is implemented yet:
+This repository contains the **application shell** (Step 1) and the
+**canonical domain model with validation rules** (Step 2). The UI is still
+placeholder pages, and no financial functionality is implemented yet:
 
-- No transaction, asset, goal, budget, or wishlist logic
-- No Financial Engine
+- No transaction, asset, goal, budget, or wishlist screens or CRUD
+- No Financial Engine (no net worth, spendable money, goal progress, ...)
 - No Gemini/AI integration
-- No final database schema
+- No database schema (the Dexie database has no stores yet)
 
-See [`docs/architecture.md`](./docs/architecture.md) for what Step 1
-actually establishes.
+See [`docs/architecture.md`](./docs/architecture.md) for the
+boundaries, domain conventions (money, dates, ids) and design decisions.
 
 ## Key characteristics
 
@@ -73,8 +74,8 @@ src/
   components/ui/  Reusable UI primitives (Button, Input, Card, Dialog, ...)
   features/       One folder per product area (dashboard, transactions, ...)
                   — currently placeholder pages only
-  domain/         Future Financial Engine: entities, calculations, rules
-                  — intentionally empty in Step 1
+  domain/         Canonical entities, value types and validation rules
+                  (pure; calculations/Financial Engine come later)
   data/
     db/           Dexie persistence boundary (no schema yet)
     repositories/ Future data-access layer — empty in Step 1
