@@ -80,12 +80,35 @@ describe('validateGoldPriceRecord', () => {
     expect(validateGoldPriceRecord(buildGoldPrice())).toEqual([]);
   });
 
+  it('accepts the smallest positive price (1 piastre per gram)', () => {
+    expect(
+      validateGoldPriceRecord(buildGoldPrice({ pricePerGram: asMoney(1) })),
+    ).toEqual([]);
+  });
+
+  it('rejects a zero price', () => {
+    const result = validateGoldPriceRecord(
+      buildGoldPrice({ pricePerGram: asMoney(0) }),
+    );
+    expect(codes(result)).toEqual(['INVALID_GOLD_PRICE']);
+  });
+
   it('rejects a negative price', () => {
     const result = validateGoldPriceRecord(
       buildGoldPrice({ pricePerGram: asMoney(-1) }),
     );
     expect(codes(result)).toEqual(['INVALID_GOLD_PRICE']);
   });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects a non-finite price %s',
+    (price) => {
+      const bad = buildGoldPrice({ pricePerGram: untyped(price) });
+      expect(codes(validateGoldPriceRecord(bad))).toEqual([
+        'INVALID_GOLD_PRICE',
+      ]);
+    },
+  );
 
   it('rejects a fractional piastre price', () => {
     const bad = buildGoldPrice({ pricePerGram: untyped(450_050.5) });

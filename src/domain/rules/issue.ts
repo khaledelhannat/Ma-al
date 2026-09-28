@@ -23,6 +23,7 @@ export type ValidationCode =
   | 'TRANSACTION_HAS_TRANSFER_FIELDS'
   // category
   | 'CATEGORY_SELF_PARENT'
+  | 'CATEGORY_CYCLE'
   // gold
   | 'INVALID_KARAT'
   | 'GOLD_DATA_ON_NON_GOLD_ASSET'

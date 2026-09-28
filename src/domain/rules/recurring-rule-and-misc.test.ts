@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  asId,
   asMoney,
   createDefaultSettings,
   validateCategory,
+  validateCategoryHierarchy,
   validateMonthlySnapshot,
   validateRecurringRule,
   validateRecurringRuleReferences,
   validateSettings,
 } from '..';
-import type { RecurringRule, Settings } from '..';
+import type { CategoryId, RecurringRule, Settings } from '..';
 import {
   assetLookup,
   buildAsset,
@@ -108,6 +110,79 @@ describe('validateCategory', () => {
   it('rejects a type other than income/expense', () => {
     const bad = buildCategory({ type: untyped('transfer') });
     expect(codes(validateCategory(bad))).toEqual(['INVALID_ENUM_VALUE']);
+  });
+});
+
+describe('validateCategoryHierarchy', () => {
+  const catId = (n: number) =>
+    asId<'Category'>(`00000000-0000-4000-8000-${String(n).padStart(12, '0')}`);
+  const [a, b, c, d] = [catId(101), catId(102), catId(103), catId(104)] as [
+    CategoryId,
+    CategoryId,
+    CategoryId,
+    CategoryId,
+  ];
+  const node = (id: CategoryId, parentId?: CategoryId) =>
+    buildCategory(parentId === undefined ? { id } : { id, parentId });
+
+  it('accepts an empty collection and a valid parent-child hierarchy', () => {
+    expect(validateCategoryHierarchy([])).toEqual([]);
+    expect(
+      validateCategoryHierarchy([node(a), node(b, a), node(c, b)]),
+    ).toEqual([]);
+  });
+
+  it('accepts multiple independent trees (a forest)', () => {
+    expect(
+      validateCategoryHierarchy([node(a), node(b, a), node(c), node(d, c)]),
+    ).toEqual([]);
+  });
+
+  it('rejects a self-cycle (A -> A)', () => {
+    const result = validateCategoryHierarchy([node(a, a)]);
+    expect(codes(result)).toEqual(['CATEGORY_CYCLE']);
+  });
+
+  it('rejects a two-node cycle (A -> B -> A) on both members', () => {
+    const result = validateCategoryHierarchy([node(a, b), node(b, a)]);
+    expect(codes(result)).toEqual(['CATEGORY_CYCLE', 'CATEGORY_CYCLE']);
+  });
+
+  it('rejects a three-node cycle (A -> B -> C -> A) on all members', () => {
+    const result = validateCategoryHierarchy([
+      node(a, b),
+      node(b, c),
+      node(c, a),
+    ]);
+    expect(codes(result)).toEqual([
+      'CATEGORY_CYCLE',
+      'CATEGORY_CYCLE',
+      'CATEGORY_CYCLE',
+    ]);
+  });
+
+  it('flags only the categories on the cycle, not those hanging off it', () => {
+    // d -> a -> b -> a : d descends from the cycle but is not on it.
+    const result = validateCategoryHierarchy([
+      node(a, b),
+      node(b, a),
+      node(d, a),
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('still accepts valid trees alongside a cycle-free branch, and rejects the cycle', () => {
+    const result = validateCategoryHierarchy([
+      node(a),
+      node(b, a),
+      node(c, d),
+      node(d, c),
+    ]);
+    expect(codes(result)).toEqual(['CATEGORY_CYCLE', 'CATEGORY_CYCLE']);
+  });
+
+  it('treats a parent missing from the collection as the end of the chain', () => {
+    expect(validateCategoryHierarchy([node(b, a)])).toEqual([]);
   });
 });
 

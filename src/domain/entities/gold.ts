@@ -13,7 +13,7 @@ export type GoldHoldingRecordId = Id<'GoldHoldingRecord'>;
 export interface GoldPriceRecord {
   readonly id: GoldPriceRecordId;
   readonly karat: Karat;
-  /** EGP per gram, in piastres (see Money). */
+  /** EGP per gram, in piastres (see Money). Strictly positive. */
   readonly pricePerGram: Money;
   readonly effectiveDate: CalendarDate;
   readonly createdAt: Timestamp;

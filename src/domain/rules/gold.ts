@@ -12,19 +12,19 @@ import type { ValidationIssue } from './issue';
 import type { AssetLookup } from './references';
 import { isMoney } from '../values';
 
-/** Gold price must be a whole number of piastres per gram and not negative. */
+/** Gold price must be a whole number of piastres per gram, strictly greater than zero. */
 export function validateGoldPriceRecord(
   record: GoldPriceRecord,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   checkId(issues, 'id', record.id);
   checkKarat(issues, 'karat', record.karat);
-  if (!isMoney(record.pricePerGram) || record.pricePerGram < 0) {
+  if (!isMoney(record.pricePerGram) || record.pricePerGram <= 0) {
     issues.push(
       issue(
         'INVALID_GOLD_PRICE',
         'pricePerGram',
-        'pricePerGram must be a whole number of piastres and not negative.',
+        'pricePerGram must be a whole number of piastres greater than zero.',
       ),
     );
   }

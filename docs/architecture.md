@@ -96,7 +96,7 @@ receive plain lookup functions (`AssetLookup`, `CategoryLookup`,
 | Month        | `YYYY-MM` string                                     | `2026-09`                  |
 | Timestamp    | Canonical UTC ISO 8601 with milliseconds             | `2026-09-10T12:00:00.000Z` |
 | Gold weight  | `number` grams (fractional allowed, ≥ 0)             | `12.5`                     |
-| Gold price   | `Money` per gram (piastres/gram)                     | `450_050` = 4,500.50 EGP/g |
+| Gold price   | `Money` per gram (piastres/gram, > 0)                | `450_050` = 4,500.50 EGP/g |
 | Ratios       | plain `number`, only in derived output (savingsRate) | `0.4`, or `null`           |
 
 **Money.** Integers make addition and subtraction exact, serialize losslessly
@@ -154,8 +154,9 @@ levels:
    lookup functions. E.g. category type must match transaction type; gold
    holdings must belong to a gold asset; budgets need an expense category.
 3. **Collections** (`validateBudgetUniqueness`,
-   `validateGoldHoldingHistory`): rules across records, e.g. one budget per
-   category per month, and non-overlapping gold holdings per asset.
+   `validateGoldHoldingHistory`, `validateCategoryHierarchy`): rules across
+   records, e.g. one budget per category per month, non-overlapping gold
+   holdings per asset, and no cycles in the category parent hierarchy.
 
 `isActiveOn(interval, date)` is the single definition of the
 `[startDate, endDate)` rule: active on `startDate`, inactive on `endDate`.
