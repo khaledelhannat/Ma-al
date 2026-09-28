@@ -30,5 +30,49 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Architecture boundary: the domain layer is pure. It must not depend on
+    // the UI, persistence, or AI layers, nor on React/Dexie/router libraries.
+    files: ['src/domain/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message: 'The domain layer must not depend on React.',
+            },
+            {
+              name: 'react-dom',
+              message: 'The domain layer must not depend on React.',
+            },
+            {
+              name: 'react-router-dom',
+              message: 'The domain layer must not depend on routing.',
+            },
+            {
+              name: 'dexie',
+              message:
+                'The domain layer must not depend on Dexie; persistence maps domain types in src/data.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '**/app/**',
+                '**/components/**',
+                '**/features/**',
+                '**/data/**',
+                '**/services/**',
+              ],
+              message:
+                'The domain layer must not import from UI, persistence, or AI layers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   eslintConfigPrettier,
 );
