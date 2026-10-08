@@ -10,16 +10,18 @@ The full product vision, domain model, and business rules live in the
 **Step 0 specification**, which is the authoritative source of truth for
 this project. This README only describes the technical foundation.
 
-## Project status: Step 2 — Domain Model & Contracts
+## Project status: Step 3 — Persistence
 
-This repository contains the **application shell** (Step 1) and the
-**canonical domain model with validation rules** (Step 2). The UI is still
-placeholder pages, and no financial functionality is implemented yet:
+This repository contains the **application shell** (Step 1), the
+**canonical domain model with validation rules** (Step 2), and the
+**IndexedDB persistence layer** (Step 3: Dexie schema, storage mapping and
+repositories). The UI is still placeholder pages, and no financial
+functionality is implemented yet:
 
 - No transaction, asset, goal, budget, or wishlist screens or CRUD
 - No Financial Engine (no net worth, spendable money, goal progress, ...)
 - No Gemini/AI integration
-- No database schema (the Dexie database has no stores yet)
+- No import/export yet (deferred to its own step)
 
 See [`docs/architecture.md`](./docs/architecture.md) for the
 boundaries, domain conventions (money, dates, ids) and design decisions.
@@ -38,9 +40,9 @@ boundaries, domain conventions (money, dates, ids) and design decisions.
 - React 19 + TypeScript (strict mode)
 - Vite
 - React Router (client-side routing)
-- Dexie (IndexedDB abstraction — persistence boundary only, no schema yet)
+- Dexie (IndexedDB abstraction — schema v1, used only inside `src/data`)
 - ESLint + Prettier
-- Vitest + Testing Library
+- Vitest + Testing Library (`fake-indexeddb` for persistence tests)
 
 ## Getting started
 
@@ -77,8 +79,9 @@ src/
   domain/         Canonical entities, value types and validation rules
                   (pure; calculations/Financial Engine come later)
   data/
-    db/           Dexie persistence boundary (no schema yet)
-    repositories/ Future data-access layer — empty in Step 1
+    db/           The single Dexie database and its versioned schema
+    records/      Storage records + mappers (domain <-> IndexedDB shape)
+    repositories/ Domain-level data access; the only way the app reads/writes
   services/ai/    Future optional Gemini integration — empty in Step 1
   lib/utils/      Small generic utilities
   types/          Shared, non-domain-specific types
@@ -96,7 +99,7 @@ never commit real secrets or API keys.
 
 ## Contributing to later steps
 
-Do not add financial domain logic, a Dexie schema, or a Gemini
-integration directly into this foundation without following the Step 0
-specification. Those belong to their own implementation steps (Step 2
-onward).
+Do not add financial calculations or a Gemini integration directly into
+this foundation without following the Step 0 specification. Those belong to
+their own implementation steps (Step 4 onward). Schema changes follow the
+versioning rules in [`docs/architecture.md`](./docs/architecture.md).

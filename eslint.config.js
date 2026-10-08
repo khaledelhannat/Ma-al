@@ -74,5 +74,81 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Architecture boundary: only the persistence layer knows Dexie exists.
+    // UI/application code reaches data through repositories (src/data), never
+    // through the Dexie instance or storage records.
+    files: [
+      'src/app/**/*.{ts,tsx}',
+      'src/components/**/*.{ts,tsx}',
+      'src/features/**/*.{ts,tsx}',
+      'src/services/**/*.{ts,tsx}',
+      'src/lib/**/*.{ts,tsx}',
+      'src/types/**/*.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'dexie',
+              message:
+                'Only src/data may use Dexie. Go through a repository instead.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '**/data/db',
+                '**/data/db/**',
+                '**/data/records',
+                '**/data/records/**',
+              ],
+              message:
+                'Do not import the database or storage records; use the repositories exported from src/data.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The persistence layer may depend on the domain, but never on UI,
+    // routing or AI code.
+    files: ['src/data/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message: 'The data layer must not depend on React.',
+            },
+            {
+              name: 'react-dom',
+              message: 'The data layer must not depend on React.',
+            },
+            {
+              name: 'react-router-dom',
+              message: 'The data layer must not depend on routing.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '**/app/**',
+                '**/components/**',
+                '**/features/**',
+                '**/services/**',
+              ],
+              message: 'The data layer must not import from UI or AI layers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   eslintConfigPrettier,
 );
