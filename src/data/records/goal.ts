@@ -5,8 +5,10 @@ import {
   asMoney,
   asTimestamp,
 } from '../../domain';
+import { validateGoal } from '../../domain';
 import type { Goal } from '../../domain';
-import { requireEnum } from './codec';
+import { requireEnum, requireString } from './codec';
+import { assertValid } from './validate';
 
 export interface GoalRecord {
   id: string;
@@ -31,13 +33,14 @@ export function toGoalRecord(goal: Goal): GoalRecord {
 }
 
 export function fromGoalRecord(record: GoalRecord): Goal {
-  return {
+  const value: Goal = {
     id: asId<'Goal'>(record.id),
     name: record.name,
     targetAmount: asMoney(record.targetAmount),
     deadline: asCalendarDate(record.deadline),
     priority: requireEnum(PRIORITIES, record.priority, 'priority'),
-    notes: record.notes,
+    notes: requireString(record.notes, 'notes'),
     createdAt: asTimestamp(record.createdAt),
   };
+  return assertValid('Goal', value, validateGoal);
 }

@@ -5,8 +5,10 @@ import {
   asId,
   asMoney,
 } from '../../domain';
+import { validateWishlistItem } from '../../domain';
 import type { WishlistItem } from '../../domain';
-import { requireEnum } from './codec';
+import { requireEnum, requireString } from './codec';
+import { assertValid } from './validate';
 
 export interface WishlistItemRecord {
   id: string;
@@ -37,7 +39,7 @@ export function toWishlistItemRecord(item: WishlistItem): WishlistItemRecord {
 export function fromWishlistItemRecord(
   record: WishlistItemRecord,
 ): WishlistItem {
-  return {
+  const value: WishlistItem = {
     id: asId<'WishlistItem'>(record.id),
     name: record.name,
     estimatedPrice: asMoney(record.estimatedPrice),
@@ -47,7 +49,8 @@ export function fromWishlistItemRecord(
       : {}),
     targetDate: asCalendarDate(record.targetDate),
     dateAdded: asCalendarDate(record.dateAdded),
-    notes: record.notes,
+    notes: requireString(record.notes, 'notes'),
     status: requireEnum(WISHLIST_STATUSES, record.status, 'status'),
   };
+  return assertValid('WishlistItem', value, validateWishlistItem);
 }

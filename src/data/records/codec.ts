@@ -50,3 +50,34 @@ export function requireDefined<T>(
   }
   return value;
 }
+
+/**
+ * Reconstruction drops fields the domain type forbids (`?: never`), so the
+ * Step 2 validator could never see them. Reject a stored row that carries
+ * such a field instead of silently discarding the evidence of corruption.
+ * `null` counts as absent (transfers store `categoryId: null`).
+ */
+export function forbidFields(
+  record: object,
+  fields: readonly string[],
+  context: string,
+): void {
+  const present = Object.entries(record)
+    .filter(([key, value]) => fields.includes(key) && value != null)
+    .map(([key]) => key);
+  if (present.length > 0) {
+    throw new RangeError(
+      `${context} must not have: ${present.join(', ')} (stored on the row)`,
+    );
+  }
+}
+
+export function requireArray<T>(
+  value: readonly T[],
+  field: string,
+): readonly T[] {
+  if (!Array.isArray(value)) {
+    throw new RangeError(`${field} must be an array`);
+  }
+  return value;
+}

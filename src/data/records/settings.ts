@@ -1,6 +1,8 @@
 import { START_PAGES } from '../../domain';
+import { validateSettings } from '../../domain';
 import type { Settings } from '../../domain';
 import { requireEnum } from './codec';
+import { assertValid } from './validate';
 
 /** Settings is a singleton with no id in the domain; stored under one key. */
 export const SETTINGS_KEY = 'app';
@@ -20,7 +22,7 @@ export function toSettingsRecord(settings: Settings): SettingsRecord {
 }
 
 export function fromSettingsRecord(record: SettingsRecord): Settings {
-  return {
+  const value: Settings = {
     baseCurrency: requireEnum(
       ['EGP'] as const,
       record.baseCurrency,
@@ -34,4 +36,5 @@ export function fromSettingsRecord(record: SettingsRecord): Settings {
       ),
     },
   };
+  return assertValid('Settings', value, validateSettings);
 }

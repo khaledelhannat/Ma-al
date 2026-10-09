@@ -5,8 +5,10 @@ import {
   asMoney,
   asTimestamp,
 } from '../../domain';
+import { validateTransaction } from '../../domain';
 import type { Transaction } from '../../domain';
-import { requireEnum } from './codec';
+import { forbidFields, requireEnum, requireString } from './codec';
+import { assertValid } from './validate';
 
 interface TransactionRecordBase {
   id: string;
@@ -84,12 +86,21 @@ export function toTransactionRecord(tx: Transaction): TransactionRecord {
 }
 
 export function fromTransactionRecord(record: TransactionRecord): Transaction {
+  return assertValid(
+    'Transaction',
+    reconstructTransaction(record),
+    validateTransaction,
+  );
+}
+
+function reconstructTransaction(record: TransactionRecord): Transaction {
   const type = requireEnum(TRANSACTION_TYPES, record.type, 'type');
   const base = {
     id: asId<'Transaction'>(record.id),
     amount: asMoney(record.amount),
     date: asCalendarDate(record.date),
-    description: record.description,
+    // Step 2 has no description rule, so only its primitive type is checked.
+    description: requireString(record.description, 'description'),
     createdAt: asTimestamp(record.createdAt),
     updatedAt: asTimestamp(record.updatedAt),
     ...(record.sourceWishlistItemId !== undefined
@@ -104,6 +115,7 @@ export function fromTransactionRecord(record: TransactionRecord): Transaction {
       : {}),
   };
   if (record.type === 'transfer') {
+    forbidFields(record, ['assetId', 'categoryId'], 'transfer');
     return {
       ...base,
       type: 'transfer',
@@ -114,6 +126,7 @@ export function fromTransactionRecord(record: TransactionRecord): Transaction {
         : {}),
     };
   }
+  forbidFields(record, ['sourceAssetId', 'destinationAssetId'], type);
   const fields = {
     assetId: asId<'Asset'>(record.assetId),
     categoryId: asId<'Category'>(record.categoryId),

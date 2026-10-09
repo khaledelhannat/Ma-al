@@ -6,8 +6,15 @@ import {
   asMoney,
   asTimestamp,
 } from '../../domain';
+import { validateAsset } from '../../domain';
 import type { Asset } from '../../domain';
-import { requireDefined, requireEnum, requireNumber } from './codec';
+import { assertValid } from './validate';
+import {
+  forbidFields,
+  requireDefined,
+  requireEnum,
+  requireNumber,
+} from './codec';
 
 export interface AssetRecord {
   id: string;
@@ -47,11 +54,13 @@ export function fromAssetRecord(record: AssetRecord): Asset {
     updatedAt: asTimestamp(record.updatedAt),
   };
   if (type === 'gold') {
-    return {
+    const gold: Asset = {
       ...base,
       type,
       karat: requireNumber(requireDefined(record.karat, 'karat'), 'karat'),
     };
+    return assertValid('Asset', gold, validateAsset);
   }
-  return { ...base, type };
+  forbidFields(record, ['karat'], `${type} asset`);
+  return assertValid('Asset', { ...base, type }, validateAsset);
 }

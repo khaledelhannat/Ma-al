@@ -4,8 +4,16 @@ import {
   asId,
   asMoney,
 } from '../../domain';
+import { validateRecurringRule } from '../../domain';
 import type { RecurringRule } from '../../domain';
-import { fromFlag, requireEnum, toFlag } from './codec';
+import {
+  forbidFields,
+  fromFlag,
+  requireEnum,
+  requireString,
+  toFlag,
+} from './codec';
+import { assertValid } from './validate';
 import type { Flag } from './codec';
 
 export type TransactionTemplateRecord =
@@ -64,22 +72,28 @@ function fromTemplateRecord(
   record: TransactionTemplateRecord,
 ): RecurringRule['transactionTemplate'] {
   if (record.type === 'transfer') {
+    forbidFields(record, ['categoryId', 'assetId'], 'transfer template');
     return {
       type: 'transfer',
       amount: asMoney(record.amount),
       sourceAssetId: asId<'Asset'>(record.sourceAssetId),
       destinationAssetId: asId<'Asset'>(record.destinationAssetId),
-      description: record.description,
+      description: requireString(record.description, 'description'),
       ...(record.paymentMethod !== undefined
         ? { paymentMethod: record.paymentMethod }
         : {}),
     };
   }
+  forbidFields(
+    record,
+    ['sourceAssetId', 'destinationAssetId'],
+    `${record.type} template`,
+  );
   const fields = {
     amount: asMoney(record.amount),
     categoryId: asId<'Category'>(record.categoryId),
     assetId: asId<'Asset'>(record.assetId),
-    description: record.description,
+    description: requireString(record.description, 'description'),
     paymentMethod: record.paymentMethod,
   };
   const type = requireEnum(['income', 'expense'] as const, record.type, 'type');
@@ -103,7 +117,7 @@ export function toRecurringRuleRecord(
 export function fromRecurringRuleRecord(
   record: RecurringRuleRecord,
 ): RecurringRule {
-  return {
+  const rule: RecurringRule = {
     id: asId<'RecurringRule'>(record.id),
     transactionTemplate: fromTemplateRecord(record.transactionTemplate),
     frequency: requireEnum(
@@ -114,4 +128,6 @@ export function fromRecurringRuleRecord(
     nextRunDate: asCalendarDate(record.nextRunDate),
     active: fromFlag(record.active, 'active'),
   };
+  // validateRecurringRule also validates the nested transactionTemplate.
+  return assertValid('RecurringRule', rule, validateRecurringRule);
 }

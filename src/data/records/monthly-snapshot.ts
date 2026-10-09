@@ -6,8 +6,16 @@ import {
   asMoney,
   asTimestamp,
 } from '../../domain';
+import { validateMonthlySnapshot } from '../../domain';
 import type { MonthlySnapshot, MonthlySnapshotData } from '../../domain';
-import { fromFlag, requireEnum, requireNumber, toFlag } from './codec';
+import {
+  fromFlag,
+  requireArray,
+  requireEnum,
+  requireNumber,
+  toFlag,
+} from './codec';
+import { assertValid } from './validate';
 import type { Flag } from './codec';
 
 interface MonthlySnapshotDataRecord {
@@ -68,12 +76,18 @@ function fromDataRecord(
     expenses: asMoney(record.expenses),
     savings: asMoney(record.savings),
     savingsRate: rate === null ? null : requireNumber(rate, 'savingsRate'),
-    categoryBreakdown: record.categoryBreakdown.map((entry) => ({
+    categoryBreakdown: requireArray(
+      record.categoryBreakdown,
+      'categoryBreakdown',
+    ).map((entry) => ({
       categoryId: asId<'Category'>(entry.categoryId),
       type: requireEnum(CATEGORY_TYPES, entry.type, 'categoryBreakdown.type'),
       total: asMoney(entry.total),
     })),
-    goalProgressSummary: record.goalProgressSummary.map((entry) => ({
+    goalProgressSummary: requireArray(
+      record.goalProgressSummary,
+      'goalProgressSummary',
+    ).map((entry) => ({
       goalId: asId<'Goal'>(entry.goalId),
       fundedAmount: asMoney(entry.fundedAmount),
       progressRatio: requireNumber(entry.progressRatio, 'progressRatio'),
@@ -97,11 +111,14 @@ export function toMonthlySnapshotRecord(
 export function fromMonthlySnapshotRecord(
   record: MonthlySnapshotRecord,
 ): MonthlySnapshot {
-  return {
+  const snapshot: MonthlySnapshot = {
     id: asId<'MonthlySnapshot'>(record.id),
     month: asMonth(record.month),
     computedAt: asTimestamp(record.computedAt),
     dirty: fromFlag(record.dirty, 'dirty'),
     data: fromDataRecord(record.data),
   };
+  // Step 2 validates the envelope only (the contents are rebuildable engine
+  // output); the nested data was strictly reconstructed above.
+  return assertValid('MonthlySnapshot', snapshot, validateMonthlySnapshot);
 }

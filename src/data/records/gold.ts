@@ -1,5 +1,10 @@
 import { asCalendarDate, asId, asMoney, asTimestamp } from '../../domain';
+import {
+  validateGoldHoldingRecord,
+  validateGoldPriceRecord,
+} from '../../domain';
 import type { GoldHoldingRecord, GoldPriceRecord } from '../../domain';
+import { assertValid } from './validate';
 import { requireNumber } from './codec';
 
 export interface GoldPriceStorageRecord {
@@ -34,13 +39,14 @@ export function toGoldPriceRecord(
 export function fromGoldPriceRecord(
   record: GoldPriceStorageRecord,
 ): GoldPriceRecord {
-  return {
+  const value: GoldPriceRecord = {
     id: asId<'GoldPriceRecord'>(record.id),
     karat: requireNumber(record.karat, 'karat'),
     pricePerGram: asMoney(record.pricePerGram),
     effectiveDate: asCalendarDate(record.effectiveDate),
     createdAt: asTimestamp(record.createdAt),
   };
+  return assertValid('GoldPriceRecord', value, validateGoldPriceRecord);
 }
 
 export function toGoldHoldingRecord(
@@ -59,7 +65,7 @@ export function toGoldHoldingRecord(
 export function fromGoldHoldingRecord(
   record: GoldHoldingStorageRecord,
 ): GoldHoldingRecord {
-  return {
+  const value: GoldHoldingRecord = {
     id: asId<'GoldHoldingRecord'>(record.id),
     assetId: asId<'Asset'>(record.assetId),
     weightGrams: requireNumber(record.weightGrams, 'weightGrams'),
@@ -69,4 +75,5 @@ export function fromGoldHoldingRecord(
       : {}),
     createdAt: asTimestamp(record.createdAt),
   };
+  return assertValid('GoldHoldingRecord', value, validateGoldHoldingRecord);
 }

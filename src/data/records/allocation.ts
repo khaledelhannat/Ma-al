@@ -1,5 +1,7 @@
 import { asCalendarDate, asId, asMoney, asTimestamp } from '../../domain';
+import { validateAllocation } from '../../domain';
 import type { Allocation } from '../../domain';
+import { assertValid } from './validate';
 
 export interface AllocationRecord {
   id: string;
@@ -28,7 +30,7 @@ export function toAllocationRecord(allocation: Allocation): AllocationRecord {
 }
 
 export function fromAllocationRecord(record: AllocationRecord): Allocation {
-  return {
+  const allocation: Allocation = {
     id: asId<'Allocation'>(record.id),
     assetId: asId<'Asset'>(record.assetId),
     amount: asMoney(record.amount),
@@ -42,4 +44,5 @@ export function fromAllocationRecord(record: AllocationRecord): Allocation {
       : {}),
     createdAt: asTimestamp(record.createdAt),
   };
+  return assertValid('Allocation', allocation, validateAllocation);
 }

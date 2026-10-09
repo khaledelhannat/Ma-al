@@ -1,5 +1,7 @@
 import { asId, asMonth, asMoney } from '../../domain';
+import { validateBudget } from '../../domain';
 import type { Budget } from '../../domain';
+import { assertValid } from './validate';
 
 export interface BudgetRecord {
   id: string;
@@ -18,10 +20,11 @@ export function toBudgetRecord(budget: Budget): BudgetRecord {
 }
 
 export function fromBudgetRecord(record: BudgetRecord): Budget {
-  return {
+  const value: Budget = {
     id: asId<'Budget'>(record.id),
     categoryId: asId<'Category'>(record.categoryId),
     month: asMonth(record.month),
     amount: asMoney(record.amount),
   };
+  return assertValid('Budget', value, validateBudget);
 }

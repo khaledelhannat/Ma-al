@@ -147,10 +147,43 @@ callers.
 | Transfer `categoryId` | `null`                        | field absent (as Step 2's `TransferTransaction` declares) |
 | Booleans (indexed)    | `0` / `1`                     | checked, then `boolean`                                   |
 
-No `any` and no `as DomainType` casts are used to cross the boundary: values
-are re-validated by the Step 2 constructors on every read. A record that
-cannot be reconstructed raises `CorruptRecordError` (entity, key, original
-cause) instead of returning a half-valid object.
+No `any` and no `as DomainType` casts are used to cross the boundary. Stored
+rows are untrusted, so every `from*Record` does three things, in order:
+
+1. **Primitive reconstruction** with the value-level constructors above
+   (`asMoney`, `asId`, `asCalendarDate`, enum and flag checks).
+2. **Entity reconstruction** of the domain object (per-variant for unions).
+3. **Step 2 intrinsic validation** of that object with the existing validator
+   (`validateTransaction`, `validateCategory`, `validateAsset`,
+   `validateAllocation`, `validateGoal`, `validateBudget`,
+   `validateWishlistItem`, `validateGoldPriceRecord`,
+   `validateGoldHoldingRecord`, `validateRecurringRule`,
+   `validateMonthlySnapshot`, `validateSettings`). Issues become a
+   `RecordValidationError`; nothing is returned unless the validator is clean.
+
+The repository decoder wraps any failure in `CorruptRecordError(entity, key)`
+with the original error as `cause`, so callers never receive an invalid object
+or a raw `ValidationIssue[]`.
+
+What this does and does not cover:
+
+- **Intrinsic only.** Reference rules (`validate*References`, uniqueness,
+  hierarchy/history collection rules) are never run while decoding; decoding a
+  row must not need other rows. They remain separate concerns.
+- **Fields the domain type forbids** (`?: never`: `karat` on a non-gold asset,
+  `assetId` on a transfer, `categoryId`/`assetId` on a transfer template,
+  `sourceAssetId`/`destinationAssetId` on income/expense) are dropped when the
+  object is built, so a validator could never see them. The mappers reject a
+  stored row that carries one instead of discarding it.
+- **Nested data.** `validateRecurringRule` validates the embedded
+  `transactionTemplate`. `validateMonthlySnapshot` validates only the snapshot
+  envelope (the contents are rebuildable engine output), so the snapshot's
+  nested `data` is guarded by the mapper's strict primitive reconstruction
+  (ids, piastres, enums, finite numbers, arrays), not by a Step 2 validator.
+- **Step 2 gap.** No Step 2 rule covers `Transaction.description`,
+  `Goal.notes`, `WishlistItem.notes` or a template's `description`; the mappers
+  only check they are strings. If Step 0 should constrain them, that is a Step 2
+  change.
 
 ### Repositories (`src/data/repositories`)
 
