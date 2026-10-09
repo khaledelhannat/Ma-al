@@ -115,7 +115,9 @@ function reconstructTransaction(record: TransactionRecord): Transaction {
       : {}),
   };
   if (record.type === 'transfer') {
-    forbidFields(record, ['assetId', 'categoryId'], 'transfer');
+    // categoryId: null is the intentional storage form of a transfer's
+    // missing category; any other value, or an assetId, is corruption.
+    forbidFields(record, ['assetId', 'categoryId'], 'transfer', ['categoryId']);
     return {
       ...base,
       type: 'transfer',

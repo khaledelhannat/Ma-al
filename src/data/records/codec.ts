@@ -55,15 +55,24 @@ export function requireDefined<T>(
  * Reconstruction drops fields the domain type forbids (`?: never`), so the
  * Step 2 validator could never see them. Reject a stored row that carries
  * such a field instead of silently discarding the evidence of corruption.
- * `null` counts as absent (transfers store `categoryId: null`).
+ *
+ * A forbidden field is rejected whenever the key is explicitly present on the
+ * row, whatever its value (including `null` and `undefined`). The only
+ * exception is opt-in per call site: a field named in `nullAllowed` may be
+ * present with the exact value `null`. That exists for one case, the
+ * persisted Transfer Transaction, which stores `categoryId: null` by design.
  */
 export function forbidFields(
   record: object,
   fields: readonly string[],
   context: string,
+  nullAllowed: readonly string[] = [],
 ): void {
   const present = Object.entries(record)
-    .filter(([key, value]) => fields.includes(key) && value != null)
+    .filter(
+      ([key, value]) =>
+        fields.includes(key) && !(value === null && nullAllowed.includes(key)),
+    )
     .map(([key]) => key);
   if (present.length > 0) {
     throw new RangeError(
