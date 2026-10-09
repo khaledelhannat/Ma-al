@@ -11,7 +11,7 @@ import {
 import { asMoney } from '../../domain';
 import { createTestRepositories } from '../test-support/test-database';
 import { CorruptRecordError } from '../errors';
-import { forbidFields } from './codec';
+import { forbidFields, requireNullField } from './codec';
 import {
   fromAssetRecord,
   fromRecurringRuleRecord,
@@ -40,26 +40,43 @@ describe('forbidFields (helper)', () => {
   it('accepts a row where the forbidden key is truly absent', () => {
     expect(() => forbidFields({ other: 1 }, ['karat'], 'row')).not.toThrow();
   });
+  it('has no null exception: null is rejected for every forbidden field, categoryId included', () => {
+    for (const field of ['assetId', 'categoryId', 'karat']) {
+      expect(() =>
+        forbidFields(
+          { [field]: null },
+          ['assetId', 'categoryId', 'karat'],
+          'row',
+        ),
+      ).toThrow(RangeError);
+    }
+  });
+});
 
-  it('allows null only for a field opted in, and only the exact value null', () => {
-    const opt = ['categoryId'];
+describe('requireNullField (helper)', () => {
+  it('accepts only an own property whose value is exactly null', () => {
     expect(() =>
-      forbidFields({ categoryId: null }, ['categoryId'], 'row', opt),
+      requireNullField({ categoryId: null }, 'categoryId', 'row'),
     ).not.toThrow();
-    expect(() =>
-      forbidFields({ categoryId: undefined }, ['categoryId'], 'row', opt),
-    ).toThrow(RangeError);
-    expect(() =>
-      forbidFields({ categoryId: 'abc' }, ['categoryId'], 'row', opt),
-    ).toThrow(RangeError);
   });
 
-  it('does not extend the null exception to other fields', () => {
+  it('rejects a missing key, an explicit undefined, and any non-null value', () => {
+    expect(() => requireNullField({}, 'categoryId', 'row')).toThrow(RangeError);
     expect(() =>
-      forbidFields({ assetId: null }, ['assetId', 'categoryId'], 'row', [
-        'categoryId',
-      ]),
-    ).toThrow(/assetId/);
+      requireNullField({ other: null }, 'categoryId', 'row'),
+    ).toThrow(RangeError);
+    for (const value of [undefined, '', 0, false, 'abc']) {
+      expect(() =>
+        requireNullField({ categoryId: value }, 'categoryId', 'row'),
+      ).toThrow(RangeError);
+    }
+  });
+
+  it('does not treat an inherited property as present', () => {
+    const inherited = Object.create({ categoryId: null });
+    expect(() => requireNullField(inherited, 'categoryId', 'row')).toThrow(
+      RangeError,
+    );
   });
 });
 
@@ -79,6 +96,13 @@ describe('Transfer transactions', () => {
   it('REGRESSION: a transfer with a payment method also still round-trips', () => {
     const tx = buildTransfer({ paymentMethod: 'ATM' });
     expect(fromTransactionRecord(toTransactionRecord(tx))).toStrictEqual(tx);
+  });
+
+  it('rejects a transfer row whose categoryId key is missing entirely', () => {
+    const missing = structuredClone(transfer);
+    Reflect.deleteProperty(missing, 'categoryId');
+    expect(Object.hasOwn(missing, 'categoryId')).toBe(false);
+    expect(() => fromTransactionRecord(missing)).toThrow(RangeError);
   });
 
   it('rejects a non-null categoryId, and an explicit undefined one', () => {
@@ -204,6 +228,36 @@ describe('through the repositories', () => {
     await repos.transactions.add(transfer);
     expect(await repos.transactions.get(transfer.id)).toStrictEqual(transfer);
     expect((await db.transactions.get(transfer.id))?.categoryId).toBeNull();
+
+    // A transfer row that lost its categoryId key is corrupt too.
+    await db.transactions
+      .where('id')
+      .equals(transfer.id)
+      .modify((row) => {
+        Reflect.deleteProperty(row, 'categoryId');
+      });
+    expect(
+      Object.hasOwn(
+        (await db.transactions.get(transfer.id)) ?? {},
+        'categoryId',
+      ),
+    ).toBe(false);
+    for (const read of [
+      () => repos.transactions.get(transfer.id),
+      () => repos.transactions.listByAsset(ids.bank),
+      () => repos.transactions.listByDateRange({}),
+    ]) {
+      await expect(read()).rejects.toBeInstanceOf(CorruptRecordError);
+    }
+
+    // Restore the contract, then break a different rule: a stray assetId.
+    await db.transactions
+      .where('id')
+      .equals(transfer.id)
+      .modify((row) => {
+        Object.assign(row, { categoryId: null });
+      });
+    expect(await repos.transactions.get(transfer.id)).toStrictEqual(transfer);
 
     await db.transactions
       .where('id')

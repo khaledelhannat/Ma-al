@@ -7,7 +7,12 @@ import {
 } from '../../domain';
 import { validateTransaction } from '../../domain';
 import type { Transaction } from '../../domain';
-import { forbidFields, requireEnum, requireString } from './codec';
+import {
+  forbidFields,
+  requireEnum,
+  requireNullField,
+  requireString,
+} from './codec';
 import { assertValid } from './validate';
 
 interface TransactionRecordBase {
@@ -115,9 +120,11 @@ function reconstructTransaction(record: TransactionRecord): Transaction {
       : {}),
   };
   if (record.type === 'transfer') {
-    // categoryId: null is the intentional storage form of a transfer's
-    // missing category; any other value, or an assetId, is corruption.
-    forbidFields(record, ['assetId', 'categoryId'], 'transfer', ['categoryId']);
+    // Persisted transfer contract: categoryId is an own property with the
+    // exact value null (its storage form of "no category"); an assetId is
+    // corruption. Null is not accepted for any other forbidden field.
+    requireNullField(record, 'categoryId', 'transfer');
+    forbidFields(record, ['assetId'], 'transfer');
     return {
       ...base,
       type: 'transfer',

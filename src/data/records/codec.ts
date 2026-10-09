@@ -56,27 +56,41 @@ export function requireDefined<T>(
  * Step 2 validator could never see them. Reject a stored row that carries
  * such a field instead of silently discarding the evidence of corruption.
  *
- * A forbidden field is rejected whenever the key is explicitly present on the
- * row, whatever its value (including `null` and `undefined`). The only
- * exception is opt-in per call site: a field named in `nullAllowed` may be
- * present with the exact value `null`. That exists for one case, the
- * persisted Transfer Transaction, which stores `categoryId: null` by design.
+ * A forbidden field is rejected whenever the key is an own property of the
+ * row, whatever its value (including `null` and `undefined`). There is no
+ * null exception here; the one place `null` is legitimate is a required
+ * field, see `requireNullField`.
  */
 export function forbidFields(
   record: object,
   fields: readonly string[],
   context: string,
-  nullAllowed: readonly string[] = [],
 ): void {
-  const present = Object.entries(record)
-    .filter(
-      ([key, value]) =>
-        fields.includes(key) && !(value === null && nullAllowed.includes(key)),
-    )
-    .map(([key]) => key);
+  const present = Object.keys(record).filter((key) => fields.includes(key));
   if (present.length > 0) {
     throw new RangeError(
       `${context} must not have: ${present.join(', ')} (stored on the row)`,
+    );
+  }
+}
+
+/**
+ * A field whose persisted form is exactly `null`. The key must be an own
+ * property of the row and its value must be `null`: a missing key, an
+ * explicit `undefined` and any other value are all corruption. Used for the
+ * Transfer Transaction's `categoryId`, which is stored as `null` by design.
+ */
+export function requireNullField(
+  record: object,
+  field: string,
+  context: string,
+): void {
+  const value: unknown = Object.entries(record).find(
+    ([key]) => key === field,
+  )?.[1];
+  if (!Object.hasOwn(record, field) || value !== null) {
+    throw new RangeError(
+      `${context} must store ${field} as null (own property, value null)`,
     );
   }
 }
