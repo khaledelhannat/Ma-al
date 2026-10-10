@@ -1,5 +1,11 @@
 // @vitest-environment node
-import { asCalendarDate, asId, asMonth, asMoney } from '../../domain';
+import {
+  asCalendarDate,
+  asId,
+  asMonth,
+  asMoney,
+  asTimestamp,
+} from '../../domain';
 import {
   buildExpense,
   buildIncome,
@@ -210,5 +216,152 @@ describe('TransactionRepository', () => {
     const raw = await db.transactions.get(tx.id);
     expect(raw?.amount).toBe(1_999_999_999_999);
     expect(raw?.date).toBe('2026-09-10');
+  });
+});
+
+describe('TransactionRepository.listByAsset (canonical asset indexes)', () => {
+  const tid = (n: number) =>
+    asId<'Transaction'>(
+      `00000000-0000-4000-8000-0000000001${n.toString(16).padStart(2, '0')}`,
+    );
+  const at = (hh: string) => asTimestamp(`2026-09-01T${hh}:00:00.000Z`);
+
+  it('finds income and expense through assetId', async () => {
+    const { repos } = createTestRepositories();
+    const income = buildIncome({ date: d('2026-09-01') });
+    const expense = buildExpense({ date: d('2026-09-02') });
+    const elsewhere = buildExpense({ assetId: other });
+    await repos.transactions.addMany([expense, elsewhere, income]);
+
+    const found = await repos.transactions.listByAsset(ids.bank);
+    expect(found.map((t) => t.id)).toEqual([income.id, expense.id]);
+    expect(found.map((t) => t.type)).toEqual(['income', 'expense']);
+  });
+
+  it('finds a transfer through sourceAssetId or destinationAssetId, once each', async () => {
+    const { repos } = createTestRepositories();
+    const transfer = buildTransfer(); // bank -> cash
+    await repos.transactions.add(transfer);
+
+    for (const asset of [ids.bank, ids.cash]) {
+      const found = await repos.transactions.listByAsset(asset);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toStrictEqual(transfer);
+    }
+    expect(await repos.transactions.listByAsset(other)).toEqual([]);
+  });
+
+  it('never repeats a transaction when one asset has income, expense and transfers both ways', async () => {
+    const { repos } = createTestRepositories();
+    const all = [
+      buildIncome({ date: d('2026-09-01') }),
+      buildExpense({ date: d('2026-09-02') }),
+      buildTransfer({ date: d('2026-09-03') }), // bank -> cash
+      buildTransfer({
+        date: d('2026-09-04'),
+        sourceAssetId: ids.cash,
+        destinationAssetId: ids.bank,
+      }),
+    ];
+    await repos.transactions.addMany(all);
+    const found = await repos.transactions.listByAsset(ids.bank);
+    expect(found.map((t) => t.id)).toEqual(all.map((t) => t.id));
+    expect(new Set(found.map((t) => t.id)).size).toBe(found.length);
+  });
+
+  it('applies an inclusive date range to every source of matches', async () => {
+    const { repos } = createTestRepositories();
+    const before = buildExpense({ date: d('2026-08-31') });
+    const first = buildExpense({ date: d('2026-09-01') });
+    const mid = buildTransfer({ date: d('2026-09-15') }); // bank is the source
+    const incoming = buildTransfer({
+      date: d('2026-09-30'),
+      sourceAssetId: ids.cash,
+      destinationAssetId: ids.bank,
+    });
+    const after = buildIncome({ date: d('2026-10-01') });
+    await repos.transactions.addMany([after, incoming, before, mid, first]);
+
+    const range = { from: d('2026-09-01'), to: d('2026-09-30') };
+    expect(
+      (await repos.transactions.listByAsset(ids.bank, range)).map((t) => t.id),
+    ).toEqual([first.id, mid.id, incoming.id]);
+    expect(
+      (
+        await repos.transactions.listByAsset(ids.bank, {
+          from: d('2026-09-30'),
+        })
+      ).map((t) => t.id),
+    ).toEqual([incoming.id, after.id]);
+  });
+
+  it('orders by date, then createdAt, then id, whichever index matched the row', async () => {
+    const { repos } = createTestRepositories();
+    const date = d('2026-09-10');
+    // Same date. Matched via assetId (expense), sourceAssetId (outgoing
+    // transfer) and destinationAssetId (incoming transfer).
+    const lateExpense = buildExpense({
+      id: tid(1),
+      date,
+      createdAt: at('12'),
+      updatedAt: at('12'),
+    });
+    const earlyOutgoing = buildTransfer({
+      id: tid(2),
+      date,
+      createdAt: at('08'),
+      updatedAt: at('08'),
+    });
+    const incoming = buildTransfer({
+      id: tid(3),
+      date,
+      sourceAssetId: ids.cash,
+      destinationAssetId: ids.bank,
+      createdAt: at('10'),
+      updatedAt: at('10'),
+    });
+    const tieA = buildExpense({
+      id: tid(4),
+      date,
+      createdAt: at('10'),
+      updatedAt: at('10'),
+    });
+    await repos.transactions.addMany([
+      lateExpense,
+      tieA,
+      incoming,
+      earlyOutgoing,
+    ]);
+
+    const found = await repos.transactions.listByAsset(ids.bank);
+    expect(found.map((t) => t.id)).toEqual([
+      earlyOutgoing.id, // 08:00
+      incoming.id, // 10:00, id ...03
+      tieA.id, // 10:00, id ...04 (id breaks the tie)
+      lateExpense.id, // 12:00
+    ]);
+  });
+
+  it('does not duplicate or hide a malformed self-transfer: it is reported as corrupt', async () => {
+    const { repos, db } = createTestRepositories();
+    const transfer = buildTransfer();
+    await repos.transactions.add(transfer);
+    await db.transactions
+      .where('id')
+      .equals(transfer.id)
+      .modify((row) => {
+        Object.assign(row, { destinationAssetId: ids.bank });
+      });
+    await expect(
+      repos.transactions.listByAsset(ids.bank),
+    ).rejects.toBeInstanceOf(CorruptRecordError);
+  });
+
+  it('keeps no derived asset data on the stored row', async () => {
+    const { repos, db } = createTestRepositories();
+    const transfer = buildTransfer();
+    await repos.transactions.add(transfer);
+    const raw = await db.transactions.get(transfer.id);
+    expect(Object.hasOwn(raw ?? {}, 'assetIds')).toBe(false);
   });
 });

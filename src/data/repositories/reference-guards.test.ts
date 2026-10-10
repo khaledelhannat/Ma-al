@@ -9,6 +9,7 @@ import {
   buildGoal,
   buildGoldAsset,
   buildGoldHolding,
+  buildIncome,
   buildRecurringRule,
   buildTransfer,
   buildWishlistItem,
@@ -136,6 +137,57 @@ describe('Asset deletion', () => {
     expect(
       await rejection(repos.assets.deleteIfUnreferenced(ids.gold)),
     ).toBeInstanceOf(ReferencedRecordError);
+  });
+});
+
+describe('Asset deletion is blocked through canonical transaction fields', () => {
+  it.each([
+    ['an income transaction (assetId)', () => buildIncome()],
+    ['an expense transaction (assetId)', () => buildExpense()],
+    [
+      'the source side of a transfer (sourceAssetId)',
+      () =>
+        buildTransfer({
+          sourceAssetId: ids.bank,
+          destinationAssetId: ids.cash,
+        }),
+    ],
+    [
+      'the destination side of a transfer (destinationAssetId)',
+      () =>
+        buildTransfer({
+          sourceAssetId: ids.cash,
+          destinationAssetId: ids.bank,
+        }),
+    ],
+  ])('refuses while %s references the asset', async (_label, build) => {
+    const { repos } = createTestRepositories();
+    await repos.assets.add(buildAsset());
+    const tx = build();
+    await repos.transactions.add(tx);
+
+    const error = await rejection(repos.assets.deleteIfUnreferenced(ids.bank));
+    expect(error).toBeInstanceOf(ReferencedRecordError);
+    expect((error as ReferencedRecordError).referencedBy).toEqual([
+      'transactions',
+    ]);
+    expect(await repos.assets.get(ids.bank)).toBeDefined();
+
+    // Removing the only reference releases the asset.
+    await repos.transactions.delete(tx.id);
+    await repos.assets.deleteIfUnreferenced(ids.bank);
+    expect(await repos.assets.get(ids.bank)).toBeUndefined();
+  });
+
+  it('is not fooled by transactions of other assets', async () => {
+    const { repos } = createTestRepositories();
+    await repos.assets.add(buildAsset());
+    await repos.transactions.addMany([
+      buildExpense({ assetId: ids.cash }),
+      buildTransfer({ sourceAssetId: ids.cash, destinationAssetId: ids.gold }),
+    ]);
+    await repos.assets.deleteIfUnreferenced(ids.bank);
+    expect(await repos.assets.get(ids.bank)).toBeUndefined();
   });
 });
 

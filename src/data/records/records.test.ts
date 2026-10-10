@@ -58,19 +58,31 @@ describe('transaction records', () => {
     }
   });
 
-  it('round-trips a transfer, storing categoryId as null and indexing both assets', () => {
+  it('round-trips a transfer, storing categoryId as null and both canonical asset ids', () => {
     const tx = buildTransfer();
     const record = toTransactionRecord(tx);
     expect(record.categoryId).toBeNull();
-    expect(record.assetIds).toEqual([ids.bank, ids.cash]);
+    expect(record).toMatchObject({
+      sourceAssetId: ids.bank,
+      destinationAssetId: ids.cash,
+    });
     const back = fromTransactionRecord(record);
     expect(back).toStrictEqual(tx);
     expect('categoryId' in back).toBe(false);
     expect('assetId' in back).toBe(false);
   });
 
-  it('indexes the single asset of income/expense', () => {
-    expect(toTransactionRecord(buildExpense()).assetIds).toEqual([ids.bank]);
+  it('stores income/expense under the canonical assetId only', () => {
+    const record = toTransactionRecord(buildExpense());
+    expect(record).toMatchObject({ assetId: ids.bank });
+    expect(Object.hasOwn(record, 'sourceAssetId')).toBe(false);
+    expect(Object.hasOwn(record, 'destinationAssetId')).toBe(false);
+  });
+
+  it('writes no derived asset array: the canonical fields are the only reference', () => {
+    for (const tx of [buildExpense(), buildIncome(), buildTransfer()]) {
+      expect(Object.hasOwn(toTransactionRecord(tx), 'assetIds')).toBe(false);
+    }
   });
 
   it('keeps optional back-references and omits them when absent', () => {

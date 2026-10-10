@@ -89,11 +89,26 @@ export function createTransactionRepository(
       return store.decodeAll(records);
     },
     async listByAsset(assetId, range) {
-      const records = await guard(entity, () =>
-        table.where('assetIds').equals(assetId).toArray(),
+      // Canonical references only: income/expense carry assetId, a transfer
+      // carries sourceAssetId and destinationAssetId. One read transaction so
+      // the three queries see the same snapshot.
+      const found = await guard(entity, () =>
+        db.transaction('r', table, async () => [
+          ...(await table.where('assetId').equals(assetId).toArray()),
+          ...(await table.where('sourceAssetId').equals(assetId).toArray()),
+          ...(await table
+            .where('destinationAssetId')
+            .equals(assetId)
+            .toArray()),
+        ]),
       );
+      // A row can match more than one index (only a malformed self-transfer
+      // would); keep each transaction once, and let decoding reject it.
+      const unique = new Map(found.map((record) => [record.id, record]));
       return sortLedger(
-        store.decodeAll(records.filter((r) => inRange(r.date, range))),
+        store.decodeAll(
+          [...unique.values()].filter((r) => inRange(r.date, range)),
+        ),
       );
     },
     async listByCategory(categoryId, range) {

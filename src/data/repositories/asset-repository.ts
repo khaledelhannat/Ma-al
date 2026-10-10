@@ -73,8 +73,18 @@ export function createAssetRepository(db: AppDatabase): AssetRepository {
             await assertUnreferenced(entity, id, [
               {
                 label: 'transactions',
-                count: () =>
-                  db.transactions.where('assetIds').equals(id).count(),
+                // Canonical fields: income/expense assetId, and BOTH sides of
+                // a transfer.
+                count: async () =>
+                  (await db.transactions.where('assetId').equals(id).count()) +
+                  (await db.transactions
+                    .where('sourceAssetId')
+                    .equals(id)
+                    .count()) +
+                  (await db.transactions
+                    .where('destinationAssetId')
+                    .equals(id)
+                    .count()),
               },
               {
                 label: 'allocations',

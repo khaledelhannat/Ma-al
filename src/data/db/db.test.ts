@@ -66,13 +66,19 @@ describe('AppDatabase', () => {
     });
   });
 
-  it('indexes transaction assets multi-entry and does not make it unique', () => {
+  it('indexes the canonical transaction asset fields, plain and non-unique', () => {
     const db = createTestDatabase();
-    expect(indexes(db, 'transactions')).toContainEqual({
-      name: 'assetIds',
-      unique: false,
-      multi: true,
-    });
+    const found = indexes(db, 'transactions');
+    for (const name of ['assetId', 'sourceAssetId', 'destinationAssetId']) {
+      expect(found).toContainEqual({ name, unique: false, multi: false });
+    }
+  });
+
+  it('has no derived asset index: no multi-entry index on transactions', () => {
+    const db = createTestDatabase();
+    const found = indexes(db, 'transactions');
+    expect(found.map((i) => i.name)).not.toContain('assetIds');
+    expect(found.some((i) => i.multi)).toBe(false);
   });
 
   it('adds no uniqueness the spec does not require', () => {

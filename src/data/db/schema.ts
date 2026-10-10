@@ -19,10 +19,12 @@ export const SCHEMA_VERSION = 1;
 
 export const SCHEMA_V1 = {
   // date ranges; type+date; category+date (budget actuals, reference check);
-  // *assetIds = every asset touched (incl. both sides of a transfer);
+  // assetId (income/expense) + sourceAssetId/destinationAssetId (transfer) =
+  // the canonical asset references, each a sparse index; there is no derived
+  // copy to drift out of sync;
   // recurringRule+date = generated occurrences; wishlist back-reference.
   transactions:
-    'id, date, [type+date], [categoryId+date], *assetIds, [recurringRuleId+date], sourceWishlistItemId',
+    'id, date, [type+date], [categoryId+date], assetId, sourceAssetId, destinationAssetId, [recurringRuleId+date], sourceWishlistItemId',
   categories: 'id, type, parentId, archived',
   assets: 'id, type, liquidity',
   goldPriceRecords: 'id, [karat+effectiveDate], effectiveDate',

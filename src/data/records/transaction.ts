@@ -24,13 +24,6 @@ interface TransactionRecordBase {
   updatedAt: string;
   sourceWishlistItemId?: string;
   recurringRuleId?: string;
-  /**
-   * Persistence-only. Every asset the transaction touches (one for
-   * income/expense, two for a transfer), indexed multi-entry so "all
-   * transactions of asset X" is a single query. Derived on write, dropped on
-   * read.
-   */
-  assetIds: string[];
 }
 
 export interface IncomeExpenseTransactionRecord extends TransactionRecordBase {
@@ -74,7 +67,6 @@ export function toTransactionRecord(tx: Transaction): TransactionRecord {
       sourceAssetId: tx.sourceAssetId,
       destinationAssetId: tx.destinationAssetId,
       categoryId: null,
-      assetIds: [tx.sourceAssetId, tx.destinationAssetId],
       ...(tx.paymentMethod !== undefined
         ? { paymentMethod: tx.paymentMethod }
         : {}),
@@ -86,7 +78,6 @@ export function toTransactionRecord(tx: Transaction): TransactionRecord {
     assetId: tx.assetId,
     categoryId: tx.categoryId,
     paymentMethod: tx.paymentMethod,
-    assetIds: [tx.assetId],
   };
 }
 

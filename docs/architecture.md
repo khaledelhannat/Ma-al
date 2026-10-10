@@ -81,20 +81,20 @@ instance (`new Dexie` appears nowhere else). Repositories receive it as a
 parameter (`createRepositories(db)`), which is also how tests inject an
 isolated in-memory database.
 
-| Table                | Primary key | Indexes (purpose)                                                                                                       |
-| -------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `transactions`       | `id`        | `date`; `[type+date]`; `[categoryId+date]`; `*assetIds` (multi-entry); `[recurringRuleId+date]`; `sourceWishlistItemId` |
-| `categories`         | `id`        | `type`; `parentId`; `archived`                                                                                          |
-| `assets`             | `id`        | `type`; `liquidity`                                                                                                     |
-| `goldPriceRecords`   | `id`        | `[karat+effectiveDate]`; `effectiveDate`                                                                                |
-| `goldHoldingRecords` | `id`        | `[assetId+startDate]`; `startDate`                                                                                      |
-| `allocations`        | `id`        | `[assetId+startDate]`; `[goalId+startDate]`; `startDate`                                                                |
-| `goals`              | `id`        | `deadline`; `priority`                                                                                                  |
-| `wishlistItems`      | `id`        | `status`; `targetDate`; `priority`; `categoryId`                                                                        |
-| `budgets`            | `id`        | **`&[categoryId+month]` (unique)**; `month`                                                                             |
-| `monthlySnapshots`   | `id`        | **`&month` (unique)**; `dirty`                                                                                          |
-| `recurringRules`     | `id`        | `active`; `[active+nextRunDate]`                                                                                        |
-| `settings`           | `key`       | — (singleton, stored under key `app`)                                                                                   |
+| Table                | Primary key | Indexes (purpose)                                                                                                                              |
+| -------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transactions`       | `id`        | `date`; `[type+date]`; `[categoryId+date]`; `assetId`; `sourceAssetId`; `destinationAssetId`; `[recurringRuleId+date]`; `sourceWishlistItemId` |
+| `categories`         | `id`        | `type`; `parentId`; `archived`                                                                                                                 |
+| `assets`             | `id`        | `type`; `liquidity`                                                                                                                            |
+| `goldPriceRecords`   | `id`        | `[karat+effectiveDate]`; `effectiveDate`                                                                                                       |
+| `goldHoldingRecords` | `id`        | `[assetId+startDate]`; `startDate`                                                                                                             |
+| `allocations`        | `id`        | `[assetId+startDate]`; `[goalId+startDate]`; `startDate`                                                                                       |
+| `goals`              | `id`        | `deadline`; `priority`                                                                                                                         |
+| `wishlistItems`      | `id`        | `status`; `targetDate`; `priority`; `categoryId`                                                                                               |
+| `budgets`            | `id`        | **`&[categoryId+month]` (unique)**; `month`                                                                                                    |
+| `monthlySnapshots`   | `id`        | **`&month` (unique)**; `dirty`                                                                                                                 |
+| `recurringRules`     | `id`        | `active`; `[active+nextRunDate]`                                                                                                               |
+| `settings`           | `key`       | — (singleton, stored under key `app`)                                                                                                          |
 
 **Uniqueness.** Only the two constraints Step 0 states are structural:
 one Budget per `categoryId + month`, one MonthlySnapshot per `month`. A
@@ -114,9 +114,16 @@ gold-holding non-overlap stays a domain collection rule.
 - `endDate` is **not** indexed: it is absent on open records. As-of-date
   queries read `startDate <= date` and then apply the domain's `isActiveOn`, so
   the `[startDate, endDate)` rule has exactly one definition.
-- A transfer touches two assets, so each transaction record carries a
-  persistence-only `assetIds` array (derived on write, dropped on read) with a
-  multi-entry index; "everything that touched asset X" is one query.
+- A transfer touches two assets, so asset lookups use the **canonical**
+  reference fields directly: `assetId` (income/expense) and `sourceAssetId` /
+  `destinationAssetId` (transfer), each a plain sparse index. There is
+  deliberately no derived "all assets" array: a stored copy of data that
+  already lives in the row could disagree with it, and both `listByAsset` and
+  the asset delete guard would then silently miss transactions. With one source
+  of truth, a row is found if and only if it actually references the asset.
+  `listByAsset` runs the three index queries in one read transaction, keeps
+  each transaction once, applies the inclusive date range, and orders by
+  date, then `createdAt`, then id.
 
 ### Schema versioning
 
@@ -198,6 +205,9 @@ on purpose:
 - **Assets** and **Goals** also only offer a guarded `deleteIfUnreferenced`:
   Step 0 gives them no archive state, and deleting an asset with ledger
   history (or a goal with allocations) would break every derived figure.
+  The asset guard finds transactions through the canonical `assetId`,
+  `sourceAssetId` and `destinationAssetId` indexes, so a reference from either
+  side of a transfer blocks deletion.
 - **WishlistItems** and **RecurringRules** are freely deletable and never
   cascade: purchase and generated transactions keep their back-references
   permanently (Step 0 rule 6).
