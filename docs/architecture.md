@@ -1,7 +1,8 @@
-# Architecture — Steps 1 and 2
+# Architecture — Steps 1 to 3
 
-This document explains the technical boundaries established in Step 1 and the
-canonical domain contracts added in Step 2. It
+This document explains the technical boundaries established in Step 1, the
+canonical domain contracts added in Step 2, and the persistence layer added
+in Step 3. It
 does **not** duplicate the product/domain specification — the Step 0
 specification remains the single source of truth for financial concepts,
 field definitions, and business rules.
@@ -38,28 +39,218 @@ and the app must work without it.
 | ----------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | UI          | `src/app`, `src/components/ui`, `src/features/*` | React components, layout, navigation, presentation                                     | Implemented (shell + primitives + placeholder pages)             |
 | Domain      | `src/domain/*`                                   | Financial entities, primitive value types, validation rules (Financial Engine to come) | Step 2: contracts + validation implemented; calculations not yet |
-| Persistence | `src/data/db`, `src/data/repositories`           | IndexedDB access via Dexie, repository pattern                                         | Boundary only, no schema                                         |
+| Persistence | `src/data/{db,records,repositories}`             | IndexedDB access via Dexie, storage mapping, repository pattern                        | Step 3: schema v1, mappers, repositories implemented             |
 | AI          | `src/services/ai`                                | Future Gemini integration, AI context building                                         | Intentionally empty                                              |
 
 **Rule:** the UI never talks to Dexie directly. It goes through
-repositories (`src/data/repositories`), which will wrap the domain
-entities once they exist. Features never import domain calculation logic
+repositories (`src/data/repositories`), which accept and return domain
+entities. ESLint enforces this (see "Dependency direction" below). Features never import domain calculation logic
 directly into components beyond calling exposed functions — but since no
 domain logic exists yet, this is a rule for future steps to honor rather
 than something Step 1 can demonstrate.
 
-## Why the persistence layer has no schema yet
+## Persistence layer (Step 3)
 
-`src/data/db/db.ts` defines a Dexie subclass with **zero versioned
-stores**. This is deliberate: the Step 0 entities (Transaction, Category,
-Asset, GoldPriceRecord, GoldHoldingRecord, Allocation, Goal,
-WishlistItem, Budget, MonthlySnapshot, RecurringRule, Settings) have real
-field definitions and relationships that belong to **Step 3 — Data Model
+```text
+UI / Application
+       |
+       v
+Repositories  (src/data/repositories)   domain objects in / out
+       |
+       v
+Storage records + mappers (src/data/records)   domain <-> IndexedDB shape
+       |
+       v
+Dexie / IndexedDB  (src/data/db)
+```
 
-- Local Persistence**. Defining a placeholder schema now would mean
-  either guessing at fields (risking contradiction with Step 0) or
-  building throwaway migrations. `version(1)` is reserved for the real
-  schema.
+The domain never imports from `src/data`; `src/data` imports the domain.
+
+### Dependency direction (enforced by ESLint)
+
+- `src/domain` may not import React, Dexie, the router, or any of
+  `app/components/features/data/services` (Step 2 rule, unchanged).
+- `src/data` may not import React, the router, or `app/components/features/services`.
+- `app`, `components`, `features`, `services`, `lib`, `types` may not import
+  `dexie`, `data/db` or `data/records`. They use the repositories.
+
+### The database (`src/data/db`)
+
+`AppDatabase` is the only Dexie definition; the app uses one shared `db`
+instance (`new Dexie` appears nowhere else). Repositories receive it as a
+parameter (`createRepositories(db)`), which is also how tests inject an
+isolated in-memory database.
+
+| Table                | Primary key | Indexes (purpose)                                                                                                                              |
+| -------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transactions`       | `id`        | `date`; `[type+date]`; `[categoryId+date]`; `assetId`; `sourceAssetId`; `destinationAssetId`; `[recurringRuleId+date]`; `sourceWishlistItemId` |
+| `categories`         | `id`        | `type`; `parentId`; `archived`                                                                                                                 |
+| `assets`             | `id`        | `type`; `liquidity`                                                                                                                            |
+| `goldPriceRecords`   | `id`        | `[karat+effectiveDate]`; `effectiveDate`                                                                                                       |
+| `goldHoldingRecords` | `id`        | `[assetId+startDate]`; `startDate`                                                                                                             |
+| `allocations`        | `id`        | `[assetId+startDate]`; `[goalId+startDate]`; `startDate`                                                                                       |
+| `goals`              | `id`        | `deadline`; `priority`                                                                                                                         |
+| `wishlistItems`      | `id`        | `status`; `targetDate`; `priority`; `categoryId`                                                                                               |
+| `budgets`            | `id`        | **`&[categoryId+month]` (unique)**; `month`                                                                                                    |
+| `monthlySnapshots`   | `id`        | **`&month` (unique)**; `dirty`                                                                                                                 |
+| `recurringRules`     | `id`        | `active`; `[active+nextRunDate]`                                                                                                               |
+| `settings`           | `key`       | — (singleton, stored under key `app`)                                                                                                          |
+
+**Uniqueness.** Only the two constraints Step 0 states are structural:
+one Budget per `categoryId + month`, one MonthlySnapshot per `month`. A
+duplicate write fails with `ConstraintViolationError`; the domain `id` is kept
+as the primary key. Nothing else is unique: gold prices may repeat for a
+karat/date (a correction), wishlist-to-transaction is not unique-indexed, and
+gold-holding non-overlap stays a domain collection rule.
+
+**IndexedDB facts that drive the design.**
+
+- Records whose indexed value is absent or `null` are left out of that index,
+  so optional fields (`goalId`, `recurringRuleId`, ...) produce small sparse
+  indexes, and transfers (stored `categoryId: null`) never appear in category
+  queries.
+- Booleans are not valid keys, so `archived`, `active` and `dirty` are stored
+  as `0 | 1` in the record (the domain keeps `boolean`).
+- `endDate` is **not** indexed: it is absent on open records. As-of-date
+  queries read `startDate <= date` and then apply the domain's `isActiveOn`, so
+  the `[startDate, endDate)` rule has exactly one definition.
+- A transfer touches two assets, so asset lookups use the **canonical**
+  reference fields directly: `assetId` (income/expense) and `sourceAssetId` /
+  `destinationAssetId` (transfer), each a plain sparse index. There is
+  deliberately no derived "all assets" array: a stored copy of data that
+  already lives in the row could disagree with it, and both `listByAsset` and
+  the asset delete guard would then silently miss transactions. With one source
+  of truth, a row is found if and only if it actually references the asset.
+  `listByAsset` runs the three index queries in one read transaction, keeps
+  each transaction once, applies the inclusive date range, and orders by
+  date, then `createdAt`, then id.
+
+### Schema versioning
+
+`SCHEMA_VERSION = 1` and `SCHEMA_V1` live in `db/schema.ts`; `db.ts` declares
+`version(1).stores(SCHEMA_V1)`. This is the first released schema, so no
+migrations exist. To change the schema later: never edit a released version;
+add `version(n+1).stores({...changed stores only})` after it, with an
+`.upgrade(tx => ...)` callback if existing rows must be rewritten, and add a
+test that opens a database seeded at the previous version. Because snapshots
+are a rebuildable cache, a change to what they contain only needs them marked
+dirty, not migrated.
+
+### Storage records and mapping (`src/data/records`)
+
+Each entity has a `*Record` type (plain strings and numbers) plus
+`to*Record` / `from*Record` functions. Repositories never hand Dexie rows to
+callers.
+
+| Domain type           | Stored as                     | Mapping back                                              |
+| --------------------- | ----------------------------- | --------------------------------------------------------- |
+| `Money`               | the same integer piastres     | `asMoney` (rejects non-safe-integers)                     |
+| `CalendarDate`        | the same `YYYY-MM-DD` string  | `asCalendarDate` (rejects impossible dates)               |
+| `Month`               | the same `YYYY-MM` string     | `asMonth`                                                 |
+| `Timestamp`           | the same canonical ISO string | `asTimestamp`                                             |
+| Branded ids           | the underlying UUID string    | `asId<'Entity'>` (validates)                              |
+| Unions                | discriminated by `type`       | explicit per-variant construction, no casts               |
+| Optional field        | key omitted when absent       | omitted again                                             |
+| Transfer `categoryId` | `null`                        | field absent (as Step 2's `TransferTransaction` declares) |
+| Booleans (indexed)    | `0` / `1`                     | checked, then `boolean`                                   |
+
+No `any` and no `as DomainType` casts are used to cross the boundary. Stored
+rows are untrusted, so every `from*Record` does three things, in order:
+
+1. **Primitive reconstruction** with the value-level constructors above
+   (`asMoney`, `asId`, `asCalendarDate`, enum and flag checks).
+2. **Entity reconstruction** of the domain object (per-variant for unions).
+3. **Step 2 intrinsic validation** of that object with the existing validator
+   (`validateTransaction`, `validateCategory`, `validateAsset`,
+   `validateAllocation`, `validateGoal`, `validateBudget`,
+   `validateWishlistItem`, `validateGoldPriceRecord`,
+   `validateGoldHoldingRecord`, `validateRecurringRule`,
+   `validateMonthlySnapshot`, `validateSettings`). Issues become a
+   `RecordValidationError`; nothing is returned unless the validator is clean.
+
+The repository decoder wraps any failure in `CorruptRecordError(entity, key)`
+with the original error as `cause`, so callers never receive an invalid object
+or a raw `ValidationIssue[]`.
+
+What this does and does not cover:
+
+- **Intrinsic only.** Reference rules (`validate*References`, uniqueness,
+  hierarchy/history collection rules) are never run while decoding; decoding a
+  row must not need other rows. They remain separate concerns.
+- **Fields the domain type forbids** (`?: never`: `karat` on a non-gold asset,
+  `assetId` on a transfer, `categoryId`/`assetId` on a transfer template,
+  `sourceAssetId`/`destinationAssetId` on income/expense) are dropped when the
+  object is built, so a validator could never see them. The mappers reject a
+  stored row that carries one instead of discarding it.
+- **Nested data.** `validateRecurringRule` validates the embedded
+  `transactionTemplate`. `validateMonthlySnapshot` validates only the snapshot
+  envelope (the contents are rebuildable engine output), so the snapshot's
+  nested `data` is guarded by the mapper's strict primitive reconstruction
+  (ids, piastres, enums, finite numbers, arrays), not by a Step 2 validator.
+- **Step 2 gap.** No Step 2 rule covers `Transaction.description`,
+  `Goal.notes`, `WishlistItem.notes` or a template's `description`; the mappers
+  only check they are strings. If Step 0 should constrain them, that is a Step 2
+  change.
+
+### Repositories (`src/data/repositories`)
+
+One repository per entity family, each returning domain objects. They differ
+on purpose:
+
+- **Categories** have no delete. `deleteIfUnreferenced` removes a category only
+  when no Transaction, Budget, WishlistItem, RecurringRule template or child
+  category refers to it (Step 0 rule 5, stricter on recurring rules because a
+  rule would later generate transactions with a dangling category). Archiving
+  is a normal `put`.
+- **Assets** and **Goals** also only offer a guarded `deleteIfUnreferenced`:
+  Step 0 gives them no archive state, and deleting an asset with ledger
+  history (or a goal with allocations) would break every derived figure.
+  The asset guard finds transactions through the canonical `assetId`,
+  `sourceAssetId` and `destinationAssetId` indexes, so a reference from either
+  side of a transfer blocks deletion.
+- **WishlistItems** and **RecurringRules** are freely deletable and never
+  cascade: purchase and generated transactions keep their back-references
+  permanently (Step 0 rule 6).
+- **Budgets** and **MonthlySnapshots** add `upsertForCategoryMonth` /
+  `upsertForMonth`: update in place keeping the stored id, never overwrite an
+  unrelated record.
+- **Allocations** and **GoldHoldings** are time-aware: `listActiveOn(date)` /
+  `findActiveOn` use the `[startDate, endDate)` rule; `listOpen` returns
+  records with no `endDate`.
+- **GoldPrices** offer `findLatestOnOrBefore(karat, date)`. Same-day ties
+  resolve to the latest `createdAt`, then greatest id (Step 0 does not define
+  this; see "Decisions future steps need to know").
+- **Settings** is a singleton: `get()` returns stored settings or the domain
+  defaults; the Gemini key/AI config is never stored here.
+- Bulk `addMany` / `putMany` run in one IndexedDB transaction: all or nothing.
+
+Errors are typed (`ConstraintViolationError`, `ReferencedRecordError`,
+`CorruptRecordError`), keep the original error as `cause`, and unknown
+failures pass through unchanged.
+
+### Persistence tests
+
+`fake-indexeddb` (dev dependency; jsdom has no IndexedDB) provides each test
+its own in-memory database through `createTestRepositories()`, with no global
+state to clean up. Coverage: schema/indexes/unique flags, mapping round trips,
+every repository, both uniqueness constraints (including a mutation check that
+they fail when the unique flag is removed), atomic bulk writes, guarded
+deletes, and boundary dates for ranges and `[startDate, endDate)`.
+
+### Decisions future steps need to know
+
+- `Settings` storage key is the constant `app`.
+- `listOpen` means "no endDate". An allocation with a future `startDate` and
+  no `endDate` is still returned; the engine decides what "current" means.
+- Dirty-snapshot cascading (Step 0 section 7) is **not** encoded in
+  persistence. It is business logic that can be built from
+  `listFromMonth` + `putMany`.
+- Gold price tie-break (same karat and date) is a persistence-level
+  determinism choice, not a product rule. The engine may refine it.
+- Table scans are used for small, bounded tables (`listOpen` without filters,
+  recurring-rule reference checks). Revisit if real data volumes demand it.
+- Export/import remains deferred to its own step; the repositories' `list`
+  methods are the intended read surface for it.
 
 ## Domain contracts (Step 2)
 
@@ -224,25 +415,12 @@ the Financial Engine in later steps.
 
 - **State management** for real financial data is deferred; revisit once
   the domain layer exists.
-- **Dexie version 1** is reserved but not yet defined — Step 3 needs to
-  design the actual schema against the Step 0 spec, including how
-  historical/time-aware records (allocations, gold prices, gold
-  holdings) are modeled.
 - **Design system** is minimal on purpose. Expect to add more primitives
   (e.g. Tabs, Table, Tooltip) as real features are built, rather than
   front-loading them now.
 - **Bundle size** — the production build is a single ~263 KB JS chunk.
   Not a problem at Step 1's scope, but worth splitting by route once
   features have real weight.
-
-### Carried into Step 3 (persistence)
-
-- Map domain types to Dexie stores; `categoryId` absent on transfers ↔
-  `null` in storage; optional fields (`endDate`, `goalId`, …) ↔ absent.
-- Add a unique compound index on Budget `[categoryId+month]` (the domain rule
-  `validateBudgetUniqueness` describes the invariant to enforce).
-- Index time-aware records by `startDate` for as-of-date queries.
-- Settings is a singleton with no id in the domain; decide its storage key.
 
 ### Carried into Step 4 (Financial Engine)
 

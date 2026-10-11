@@ -1,26 +1,48 @@
 import Dexie from 'dexie';
+import type { DexieOptions, Table } from 'dexie';
+import type {
+  AllocationRecord,
+  AssetRecord,
+  BudgetRecord,
+  CategoryRecord,
+  GoalRecord,
+  GoldHoldingStorageRecord,
+  GoldPriceStorageRecord,
+  MonthlySnapshotRecord,
+  RecurringRuleRecord,
+  SettingsRecord,
+  TransactionRecord,
+  WishlistItemRecord,
+} from '../records';
+import { SCHEMA_V1 } from './schema';
+
+export const DATABASE_NAME = 'personal-financial-intelligence-system';
 
 /**
- * Persistence boundary for the application.
- *
- * This is intentionally a placeholder. Step 1 only establishes that
- * IndexedDB access goes through Dexie and lives in `src/data/db`, not
- * scattered across the UI.
- *
- * The real financial schema (transactions, assets, allocations, goals,
- * budgets, wishlist items, monthly snapshots, recurring rules, settings,
- * gold price/holding history, etc.) is defined in Step 3 — Data Model +
- * Local Persistence, per the Step 0 specification. Do not add object
- * stores here until that step.
+ * The single Dexie definition. Nothing else in the app calls `new Dexie`.
+ * Tables hold storage records (see `../records`), never domain objects; only
+ * repositories read or write them. The Gemini API key is intentionally not
+ * stored here (Step 0: it is kept separate from the financial dataset).
  */
 export class AppDatabase extends Dexie {
-  constructor() {
-    super('personal-financial-intelligence-system');
+  declare readonly transactions: Table<TransactionRecord, string>;
+  declare readonly categories: Table<CategoryRecord, string>;
+  declare readonly assets: Table<AssetRecord, string>;
+  declare readonly goldPriceRecords: Table<GoldPriceStorageRecord, string>;
+  declare readonly goldHoldingRecords: Table<GoldHoldingStorageRecord, string>;
+  declare readonly allocations: Table<AllocationRecord, string>;
+  declare readonly goals: Table<GoalRecord, string>;
+  declare readonly wishlistItems: Table<WishlistItemRecord, string>;
+  declare readonly budgets: Table<BudgetRecord, string>;
+  declare readonly monthlySnapshots: Table<MonthlySnapshotRecord, string>;
+  declare readonly recurringRules: Table<RecurringRuleRecord, string>;
+  declare readonly settings: Table<SettingsRecord, string>;
 
-    // No stores are versioned yet. `version(1)` is reserved for the
-    // Step 3 schema so the very first released schema starts at v1
-    // rather than an accidental placeholder version.
+  constructor(name: string = DATABASE_NAME, options?: DexieOptions) {
+    super(name, options);
+    this.version(1).stores(SCHEMA_V1);
   }
 }
 
+/** Shared application instance. Opens lazily on first use. */
 export const db = new AppDatabase();
