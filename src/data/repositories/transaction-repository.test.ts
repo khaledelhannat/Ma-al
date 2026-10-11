@@ -365,3 +365,122 @@ describe('TransactionRepository.listByAsset (canonical asset indexes)', () => {
     expect(Object.hasOwn(raw ?? {}, 'assetIds')).toBe(false);
   });
 });
+
+describe('TransactionRepository ordering: date, then createdAt, then id', () => {
+  const tid = (n: number) =>
+    asId<'Transaction'>(
+      `00000000-0000-4000-8000-0000000002${n.toString(16).padStart(2, '0')}`,
+    );
+  const at = (hh: string) => asTimestamp(`2026-09-01T${hh}:00:00.000Z`);
+  const ruleId = asId<'RecurringRule'>('00000000-0000-4000-8000-0000000002f1');
+  const sameDay = d('2026-09-10');
+
+  /**
+   * IndexedDB orders equal index keys by primary key (id). Here ids ascend
+   * while createdAt descends, so index order is the REVERSE of the required
+   * order, and 03/04 tie on createdAt so only the id can break that tie.
+   */
+  async function seed() {
+    const { repos, db } = createTestRepositories();
+    const make = (
+      n: number,
+      date: ReturnType<typeof d>,
+      createdAt: ReturnType<typeof at>,
+    ) =>
+      buildExpense({
+        id: tid(n),
+        date,
+        createdAt,
+        updatedAt: createdAt,
+        recurringRuleId: ruleId,
+      });
+
+    const earlierDate = make(9, d('2026-09-09'), at('23')); // latest createdAt, earliest date
+    const a = make(1, sameDay, at('12'));
+    const b = make(2, sameDay, at('08'));
+    const c = make(3, sameDay, at('10'));
+    const e = make(4, sameDay, at('10')); // ties with c on createdAt
+    const laterDate = make(5, d('2026-09-11'), at('01')); // earliest createdAt, latest date
+    await repos.transactions.addMany([a, laterDate, e, b, earlierDate, c]);
+
+    return {
+      repos,
+      db,
+      expected: [earlierDate, b, c, e, a, laterDate].map((t) => t.id),
+    };
+  }
+
+  it('listByDateRange', async () => {
+    const { repos, expected } = await seed();
+    const found = await repos.transactions.listByDateRange({
+      from: d('2026-09-09'),
+      to: d('2026-09-11'),
+    });
+    expect(found.map((t) => t.id)).toEqual(expected);
+  });
+
+  it('listByDateRange with an open range', async () => {
+    const { repos, expected } = await seed();
+    expect(
+      (await repos.transactions.listByDateRange({})).map((t) => t.id),
+    ).toEqual(expected);
+  });
+
+  it('listByMonth', async () => {
+    const { repos, expected } = await seed();
+    expect(
+      (await repos.transactions.listByMonth(asMonth('2026-09'))).map(
+        (t) => t.id,
+      ),
+    ).toEqual(expected);
+  });
+
+  it('listByCategory', async () => {
+    const { repos, expected } = await seed();
+    expect(
+      (await repos.transactions.listByCategory(ids.food)).map((t) => t.id),
+    ).toEqual(expected);
+  });
+
+  it('listByCategory with a date range', async () => {
+    const { repos, expected } = await seed();
+    const found = await repos.transactions.listByCategory(ids.food, {
+      from: sameDay,
+      to: sameDay,
+    });
+    // only the same-day rows: b(08), c(10), e(10, later id), a(12)
+    expect(found.map((t) => t.id)).toEqual(expected.slice(1, 5));
+  });
+
+  it('listByType', async () => {
+    const { repos, expected } = await seed();
+    expect(
+      (await repos.transactions.listByType('expense')).map((t) => t.id),
+    ).toEqual(expected);
+  });
+
+  it('listByRecurringRule', async () => {
+    const { repos, expected } = await seed();
+    expect(
+      (await repos.transactions.listByRecurringRule(ruleId)).map((t) => t.id),
+    ).toEqual(expected);
+  });
+
+  it('the already-sorted methods agree on the same order', async () => {
+    const { repos, expected } = await seed();
+    expect(
+      (await repos.transactions.listByAsset(ids.bank)).map((t) => t.id),
+    ).toEqual(expected);
+  });
+
+  it('still reports a corrupt row as CorruptRecordError rather than sorting it', async () => {
+    const { repos, db } = await seed();
+    await db.transactions.update(tid(2), { paymentMethod: '' });
+    await expect(
+      repos.transactions.listByType('expense'),
+    ).rejects.toBeInstanceOf(CorruptRecordError);
+    await expect(
+      repos.transactions.listByRecurringRule(ruleId),
+    ).rejects.toBeInstanceOf(CorruptRecordError);
+  });
+});

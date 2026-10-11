@@ -79,14 +79,14 @@ export function createTransactionRepository(
     putMany: store.putMany,
     delete: store.remove,
     async listByDateRange(range) {
-      return store.decodeAll(await betweenDates(range));
+      return sortLedger(store.decodeAll(await betweenDates(range)));
     },
     async listByMonth(month) {
       const { from, to } = monthBounds(month);
       const records = await guard(entity, () =>
         table.where('date').between(from, to, true, true).toArray(),
       );
-      return store.decodeAll(records);
+      return sortLedger(store.decodeAll(records));
     },
     async listByAsset(assetId, range) {
       // Canonical references only: income/expense carry assetId, a transfer
@@ -123,7 +123,7 @@ export function createTransactionRepository(
           )
           .toArray(),
       );
-      return store.decodeAll(records);
+      return sortLedger(store.decodeAll(records));
     },
     async listByType(type, range) {
       const records = await guard(entity, () =>
@@ -137,7 +137,7 @@ export function createTransactionRepository(
           )
           .toArray(),
       );
-      return store.decodeAll(records);
+      return sortLedger(store.decodeAll(records));
     },
     async listByRecurringRule(ruleId) {
       const records = await guard(entity, () =>
@@ -146,7 +146,7 @@ export function createTransactionRepository(
           .between([ruleId, Dexie.minKey], [ruleId, Dexie.maxKey], true, true)
           .toArray(),
       );
-      return store.decodeAll(records);
+      return sortLedger(store.decodeAll(records));
     },
     async listBySourceWishlistItem(itemId) {
       const records = await guard(entity, () =>
